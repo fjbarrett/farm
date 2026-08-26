@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 )
 
 const maxRecentFindings = 100
@@ -20,6 +21,79 @@ func UpdateIntelligence(path string, report RunReport) (Intelligence, error) {
 		return Intelligence{}, err
 	}
 	mergeReport(&intelligence, report)
+	if err := saveIntelligence(path, intelligence); err != nil {
+		return Intelligence{}, err
+	}
+	return intelligence, nil
+}
+
+// ReconcileScreenshotReviewIntelligence derives semantic-review counts from
+// the queue and append-only ledger. Passing the review that triggered the
+// reconciliation also emits one idempotent actionable finding.
+func ReconcileScreenshotReviewIntelligence(path, screenshotsRoot string, recorded ScreenshotReview) (Intelligence, error) {
+	intelligence, err := LoadIntelligence(path)
+	if err != nil {
+		return Intelligence{}, err
+	}
+	pending, err := LoadPendingScreenshotReviews(screenshotsRoot)
+	if err != nil {
+		return Intelligence{}, err
+	}
+	reviews, err := LoadScreenshotReviews(screenshotsRoot)
+	if err != nil {
+		return Intelligence{}, err
+	}
+
+	devices := make(map[string]*DeviceIntelligence, len(intelligence.Devices))
+	previousVerdicts := make(map[string]string, len(intelligence.Devices))
+	for index := range intelligence.Devices {
+		device := &intelligence.Devices[index]
+		devices[device.DeviceID] = device
+		previousVerdicts[device.DeviceID] = device.LatestSemanticVerdict
+		device.SemanticReviewsPending = 0
+		device.SemanticReviewsCompleted = 0
+		device.SemanticReviewIssues = 0
+		device.LatestSemanticVerdict = ""
+		device.LastSemanticReviewAt = time.Time{}
+	}
+	for _, artifact := range pending {
+		if device := devices[artifact.DeviceID]; device != nil {
+			device.SemanticReviewsPending++
+		}
+	}
+	for _, review := range reviews {
+		device := devices[review.DeviceID]
+		if device == nil {
+			continue
+		}
+		device.SemanticReviewsCompleted++
+		if review.Verdict == ScreenshotVerdictDegraded || review.Verdict == ScreenshotVerdictFailed {
+			device.SemanticReviewIssues++
+		}
+		if device.LastSemanticReviewAt.IsZero() || review.ReviewedAt.After(device.LastSemanticReviewAt) {
+			device.LastSemanticReviewAt = review.ReviewedAt
+			device.LatestSemanticVerdict = review.Verdict
+		}
+	}
+
+	if !recorded.ReviewedAt.IsZero() {
+		kind := ""
+		switch recorded.Verdict {
+		case ScreenshotVerdictDegraded, ScreenshotVerdictFailed:
+			kind = "semantic_review_" + recorded.Verdict
+		case ScreenshotVerdictHealthy:
+			previous := previousVerdicts[recorded.DeviceID]
+			if previous == ScreenshotVerdictDegraded || previous == ScreenshotVerdictFailed {
+				kind = "semantic_review_recovered"
+			}
+		}
+		if kind != "" {
+			addFindingUnique(&intelligence, RunReport{ID: recorded.RunID, FinishedAt: recorded.ReviewedAt}, recorded.DeviceID, kind, recorded.Summary)
+		}
+		if recorded.ReviewedAt.After(intelligence.GeneratedAt) {
+			intelligence.GeneratedAt = recorded.ReviewedAt
+		}
+	}
 	if err := saveIntelligence(path, intelligence); err != nil {
 		return Intelligence{}, err
 	}
@@ -203,6 +277,15 @@ func addFinding(intelligence *Intelligence, report RunReport, deviceID, kind, me
 	if excess := len(intelligence.RecentFindings) - maxRecentFindings; excess > 0 {
 		intelligence.RecentFindings = append([]Finding(nil), intelligence.RecentFindings[excess:]...)
 	}
+}
+
+func addFindingUnique(intelligence *Intelligence, report RunReport, deviceID, kind, message string) {
+	for _, finding := range intelligence.RecentFindings {
+		if finding.RunID == report.ID && finding.DeviceID == deviceID && finding.Kind == kind && finding.Message == message {
+			return
+		}
+	}
+	addFinding(intelligence, report, deviceID, kind, message)
 }
 
 func saveIntelligence(path string, intelligence Intelligence) error {

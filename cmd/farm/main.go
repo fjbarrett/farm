@@ -42,6 +42,8 @@ func run(arguments []string) error {
 		return runCommand(arguments[1:])
 	case "loop":
 		return loopCommand(arguments[1:])
+	case "review":
+		return reviewCommand(arguments[1:])
 	case "serve":
 		return serveCommand(arguments[1:])
 	case "version", "--version", "-v":
@@ -252,10 +254,113 @@ func runCommand(arguments []string) error {
 	return nil
 }
 
+func reviewCommand(arguments []string) error {
+	if len(arguments) == 0 {
+		return errors.New("usage: farm review pending|history|submit [flags]")
+	}
+	switch arguments[0] {
+	case "pending":
+		return pendingReviewsCommand(arguments[1:])
+	case "history":
+		return reviewHistoryCommand(arguments[1:])
+	case "submit":
+		return submitReviewCommand(arguments[1:])
+	default:
+		return fmt.Errorf("unknown review command %q; expected pending, history, or submit", arguments[0])
+	}
+}
+
+func pendingReviewsCommand(arguments []string) error {
+	flags := flag.NewFlagSet("review pending", flag.ContinueOnError)
+	screenshotsDirectory := flags.String("screenshots-directory", filepath.Join("runs", "screenshots"), "screenshot artifact directory")
+	jsonOutput := flags.Bool("json", false, "print JSON")
+	if err := flags.Parse(arguments); err != nil {
+		return err
+	}
+	if flags.NArg() != 0 {
+		return errors.New("usage: farm review pending [flags]")
+	}
+	pending, err := farm.LoadPendingScreenshotReviews(*screenshotsDirectory)
+	if err != nil {
+		return err
+	}
+	if *jsonOutput {
+		return printJSON(pending)
+	}
+	writer := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
+	fmt.Fprintln(writer, "RUN\tDEVICE\tCAPTURED\tCAPTURE STATUS\tVISUAL FLAGS\tPATH")
+	for _, artifact := range pending {
+		visualFlags := make([]string, 0, 2)
+		if artifact.LooksBlank {
+			visualFlags = append(visualFlags, "blank")
+		}
+		if artifact.PossiblyFrozen {
+			visualFlags = append(visualFlags, "possibly-frozen")
+		}
+		if len(visualFlags) == 0 {
+			visualFlags = append(visualFlags, "none")
+		}
+		fmt.Fprintf(writer, "%s\t%s\t%s\t%s\t%s\t%s\n", artifact.RunID, artifact.DeviceID, artifact.CapturedAt.Format(time.RFC3339), artifact.Status, strings.Join(visualFlags, ","), artifact.Path)
+	}
+	return writer.Flush()
+}
+
+func reviewHistoryCommand(arguments []string) error {
+	flags := flag.NewFlagSet("review history", flag.ContinueOnError)
+	screenshotsDirectory := flags.String("screenshots-directory", filepath.Join("runs", "screenshots"), "screenshot artifact directory")
+	jsonOutput := flags.Bool("json", false, "print JSON")
+	if err := flags.Parse(arguments); err != nil {
+		return err
+	}
+	if flags.NArg() != 0 {
+		return errors.New("usage: farm review history [flags]")
+	}
+	reviews, err := farm.LoadScreenshotReviews(*screenshotsDirectory)
+	if err != nil {
+		return err
+	}
+	if *jsonOutput {
+		return printJSON(reviews)
+	}
+	writer := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
+	fmt.Fprintln(writer, "REVIEW\tRUN\tDEVICE\tVERDICT\tREVIEWED\tREVIEWER\tSUMMARY")
+	for _, review := range reviews {
+		fmt.Fprintf(writer, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n", review.ID, review.RunID, review.DeviceID, review.Verdict, review.ReviewedAt.Format(time.RFC3339), review.Reviewer, review.Summary)
+	}
+	return writer.Flush()
+}
+
+func submitReviewCommand(arguments []string) error {
+	flags := flag.NewFlagSet("review submit", flag.ContinueOnError)
+	screenshotsDirectory := flags.String("screenshots-directory", filepath.Join("runs", "screenshots"), "screenshot artifact directory")
+	intelligencePath := flags.String("intelligence", filepath.Join("runs", "intelligence.json"), "cumulative intelligence file")
+	verdict := flags.String("verdict", "", "healthy, degraded, failed, or unknown")
+	summary := flags.String("summary", "", "concise visual assessment")
+	reviewer := flags.String("reviewer", "operator", "reviewer identity")
+	if err := flags.Parse(arguments); err != nil {
+		return err
+	}
+	if flags.NArg() != 2 {
+		return errors.New("usage: farm review submit [flags] RUN_ID DEVICE_ID")
+	}
+	review, _, err := farm.RecordScreenshotReview(*screenshotsDirectory, farm.ScreenshotReviewSubmission{
+		RunID: flags.Arg(0), DeviceID: flags.Arg(1), Verdict: *verdict, Summary: *summary, Reviewer: *reviewer,
+	})
+	if err != nil {
+		return err
+	}
+	if _, err := farm.ReconcileScreenshotReviewIntelligence(*intelligencePath, *screenshotsDirectory, review); err != nil {
+		return err
+	}
+	return printJSON(review)
+}
+
 func serveCommand(arguments []string) error {
 	flags := flag.NewFlagSet("serve", flag.ContinueOnError)
 	path := flags.String("inventory", defaultInventory, "inventory file")
 	runs := flags.String("runs", "runs", "run report directory")
+	intelligencePath := flags.String("intelligence", "", "cumulative intelligence file (default RUNS/intelligence.json)")
+	screenshotsDirectory := flags.String("screenshots-directory", "", "screenshot artifact directory (default RUNS/screenshots)")
 	listen := flags.String("listen", "127.0.0.1:7331", "loopback listen address")
 	if err := flags.Parse(arguments); err != nil {
 		return err
@@ -265,7 +370,16 @@ func serveCommand(arguments []string) error {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	controller := farm.Controller{InventoryPath: *path, RunsDirectory: *runs}
+	if *intelligencePath == "" {
+		*intelligencePath = filepath.Join(*runs, "intelligence.json")
+	}
+	if *screenshotsDirectory == "" {
+		*screenshotsDirectory = filepath.Join(*runs, "screenshots")
+	}
+	controller := farm.Controller{
+		InventoryPath: *path, RunsDirectory: *runs,
+		IntelligencePath: *intelligencePath, ScreenshotsDirectory: *screenshotsDirectory,
+	}
 	fmt.Printf("farm controller %s listening on http://%s\n", farm.Version, *listen)
 	return controller.ListenAndServe(ctx, *listen)
 }
@@ -299,6 +413,9 @@ Usage:
   farm doctor                  Run safe health probes and save a report
   farm run JOB.json            Run a probe job (test jobs require farm-agent)
   farm loop [JOB.json]         Continuously test, retain raw data, and derive trends
+  farm review pending          List screenshots awaiting semantic UI review
+  farm review history          List completed semantic UI reviews
+  farm review submit ...       Record a screenshot verdict and update intelligence
   farm serve                   Start the localhost HTTP API on port 7331
   farm version                 Print the controller version
 

@@ -8,13 +8,16 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"path/filepath"
 	"strings"
 	"time"
 )
 
 type Controller struct {
-	InventoryPath string
-	RunsDirectory string
+	InventoryPath        string
+	RunsDirectory        string
+	IntelligencePath     string
+	ScreenshotsDirectory string
 }
 
 func (controller Controller) Handler() http.Handler {
@@ -23,7 +26,81 @@ func (controller Controller) Handler() http.Handler {
 	mux.HandleFunc("GET /v1/devices", controller.handleDevices)
 	mux.HandleFunc("POST /v1/plan", controller.handlePlan)
 	mux.HandleFunc("POST /v1/runs", controller.handleRun)
+	mux.HandleFunc("GET /v1/reviews/pending", controller.handlePendingReviews)
+	mux.HandleFunc("GET /v1/reviews", controller.handleReviewHistory)
+	mux.HandleFunc("POST /v1/reviews", controller.handleSubmitReview)
 	return requestLogging(mux)
+}
+
+func (controller Controller) handlePendingReviews(response http.ResponseWriter, _ *http.Request) {
+	pending, err := LoadPendingScreenshotReviews(controller.screenshotsDirectory())
+	if err != nil {
+		writeError(response, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(response, http.StatusOK, pending)
+}
+
+func (controller Controller) handleReviewHistory(response http.ResponseWriter, _ *http.Request) {
+	reviews, err := LoadScreenshotReviews(controller.screenshotsDirectory())
+	if err != nil {
+		writeError(response, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(response, http.StatusOK, reviews)
+}
+
+func (controller Controller) handleSubmitReview(response http.ResponseWriter, request *http.Request) {
+	request.Body = http.MaxBytesReader(response, request.Body, maximumReviewLineBytes)
+	decoder := json.NewDecoder(request.Body)
+	decoder.DisallowUnknownFields()
+	var submission ScreenshotReviewSubmission
+	if err := decoder.Decode(&submission); err != nil {
+		writeError(response, http.StatusBadRequest, fmt.Errorf("decode screenshot review: %w", err))
+		return
+	}
+	if err := requireJSONEnd(decoder); err != nil {
+		writeError(response, http.StatusBadRequest, err)
+		return
+	}
+	review, created, err := RecordScreenshotReview(controller.screenshotsDirectory(), submission)
+	if err != nil {
+		writeError(response, http.StatusUnprocessableEntity, err)
+		return
+	}
+	if _, err := ReconcileScreenshotReviewIntelligence(controller.intelligencePath(), controller.screenshotsDirectory(), review); err != nil {
+		writeError(response, http.StatusInternalServerError, err)
+		return
+	}
+	status := http.StatusOK
+	if created {
+		status = http.StatusCreated
+	}
+	writeJSON(response, status, review)
+}
+
+func (controller Controller) screenshotsDirectory() string {
+	if controller.ScreenshotsDirectory != "" {
+		return controller.ScreenshotsDirectory
+	}
+	return filepath.Join(controller.RunsDirectory, "screenshots")
+}
+
+func (controller Controller) intelligencePath() string {
+	if controller.IntelligencePath != "" {
+		return controller.IntelligencePath
+	}
+	return filepath.Join(controller.RunsDirectory, "intelligence.json")
+}
+
+func requireJSONEnd(decoder *json.Decoder) error {
+	var trailing any
+	if err := decoder.Decode(&trailing); errors.Is(err, io.EOF) {
+		return nil
+	} else if err != nil {
+		return fmt.Errorf("decode trailing JSON: %w", err)
+	}
+	return errors.New("request body must contain exactly one JSON value")
 }
 
 func (controller Controller) ListenAndServe(ctx context.Context, address string) error {

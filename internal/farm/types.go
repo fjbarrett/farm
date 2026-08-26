@@ -2,7 +2,7 @@ package farm
 
 import "time"
 
-const Version = "0.2.0"
+const Version = "0.3.0"
 
 type Inventory struct {
 	Version int      `json:"version"`
@@ -126,33 +126,37 @@ type Intelligence struct {
 }
 
 type DeviceIntelligence struct {
-	DeviceID               string            `json:"deviceId"`
-	DeviceName             string            `json:"deviceName"`
-	Transport              string            `json:"transport"`
-	FirstSeenAt            time.Time         `json:"firstSeenAt"`
-	LastSeenAt             time.Time         `json:"lastSeenAt"`
-	Observations           int64             `json:"observations"`
-	Passed                 int64             `json:"passed"`
-	Failed                 int64             `json:"failed"`
-	Availability           float64           `json:"availability"`
-	LatestStatus           string            `json:"latestStatus"`
-	ConsecutiveFailures    int64             `json:"consecutiveFailures"`
-	StatusTransitions      int64             `json:"statusTransitions"`
-	LatestDurationMS       int64             `json:"latestDurationMs"`
-	AverageDurationMS      float64           `json:"averageDurationMs"`
-	MinDurationMS          int64             `json:"minDurationMs"`
-	MaxDurationMS          int64             `json:"maxDurationMs"`
-	TotalDurationMS        int64             `json:"totalDurationMs"`
-	Attributes             map[string]string `json:"attributes,omitempty"`
-	LastError              string            `json:"lastError,omitempty"`
-	ScreenshotCaptures     int64             `json:"screenshotCaptures"`
-	ScreenshotFailures     int64             `json:"screenshotFailures"`
-	BlankFrames            int64             `json:"blankFrames"`
-	PossiblyFrozenFrames   int64             `json:"possiblyFrozenFrames"`
-	LatestScreenshotStatus string            `json:"latestScreenshotStatus,omitempty"`
-	LastScreenshotPath     string            `json:"lastScreenshotPath,omitempty"`
-	LastScreenshotAt       time.Time         `json:"lastScreenshotAt,omitempty"`
-	SemanticReviewsPending int64             `json:"semanticReviewsPending"`
+	DeviceID                 string            `json:"deviceId"`
+	DeviceName               string            `json:"deviceName"`
+	Transport                string            `json:"transport"`
+	FirstSeenAt              time.Time         `json:"firstSeenAt"`
+	LastSeenAt               time.Time         `json:"lastSeenAt"`
+	Observations             int64             `json:"observations"`
+	Passed                   int64             `json:"passed"`
+	Failed                   int64             `json:"failed"`
+	Availability             float64           `json:"availability"`
+	LatestStatus             string            `json:"latestStatus"`
+	ConsecutiveFailures      int64             `json:"consecutiveFailures"`
+	StatusTransitions        int64             `json:"statusTransitions"`
+	LatestDurationMS         int64             `json:"latestDurationMs"`
+	AverageDurationMS        float64           `json:"averageDurationMs"`
+	MinDurationMS            int64             `json:"minDurationMs"`
+	MaxDurationMS            int64             `json:"maxDurationMs"`
+	TotalDurationMS          int64             `json:"totalDurationMs"`
+	Attributes               map[string]string `json:"attributes,omitempty"`
+	LastError                string            `json:"lastError,omitempty"`
+	ScreenshotCaptures       int64             `json:"screenshotCaptures"`
+	ScreenshotFailures       int64             `json:"screenshotFailures"`
+	BlankFrames              int64             `json:"blankFrames"`
+	PossiblyFrozenFrames     int64             `json:"possiblyFrozenFrames"`
+	LatestScreenshotStatus   string            `json:"latestScreenshotStatus,omitempty"`
+	LastScreenshotPath       string            `json:"lastScreenshotPath,omitempty"`
+	LastScreenshotAt         time.Time         `json:"lastScreenshotAt,omitempty"`
+	SemanticReviewsPending   int64             `json:"semanticReviewsPending"`
+	SemanticReviewsCompleted int64             `json:"semanticReviewsCompleted"`
+	SemanticReviewIssues     int64             `json:"semanticReviewIssues"`
+	LatestSemanticVerdict    string            `json:"latestSemanticVerdict,omitempty"`
+	LastSemanticReviewAt     time.Time         `json:"lastSemanticReviewAt,omitempty"`
 }
 
 type Finding struct {
@@ -187,4 +191,28 @@ type ScreenshotArtifact struct {
 	UnchangedFrames      int       `json:"unchangedFrames,omitempty"`
 	PossiblyFrozen       bool      `json:"possiblyFrozen,omitempty"`
 	SemanticReviewStatus string    `json:"semanticReviewStatus"`
+}
+
+// ScreenshotReviewSubmission is the operator- or agent-supplied assessment
+// of a captured screen. RunID and DeviceID resolve the immutable artifact from
+// the screenshot queue; clients cannot choose the stored path or timestamp.
+type ScreenshotReviewSubmission struct {
+	RunID    string `json:"runId"`
+	DeviceID string `json:"deviceId"`
+	Verdict  string `json:"verdict"`
+	Summary  string `json:"summary"`
+	Reviewer string `json:"reviewer,omitempty"`
+}
+
+// ScreenshotReview is an append-only audit record tied to one queued image.
+type ScreenshotReview struct {
+	ID         string    `json:"id"`
+	RunID      string    `json:"runId"`
+	DeviceID   string    `json:"deviceId"`
+	DeviceName string    `json:"deviceName"`
+	Path       string    `json:"path"`
+	ReviewedAt time.Time `json:"reviewedAt"`
+	Verdict    string    `json:"verdict"`
+	Summary    string    `json:"summary"`
+	Reviewer   string    `json:"reviewer"`
 }
