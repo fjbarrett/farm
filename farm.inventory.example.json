@@ -1,0 +1,62 @@
+{
+  "version": 1,
+  "network": {
+    "name": "example-farm",
+    "subnet": "192.0.2.0/24",
+    "connection": "private network or VPN"
+  },
+  "devices": [
+    {
+      "id": "local-controller",
+      "name": "Local controller",
+      "hostname": "localhost",
+      "address": "127.0.0.1",
+      "os": "macos",
+      "osVersion": "replace-me",
+      "arch": "arm64",
+      "transport": "local",
+      "physicalLocation": "local",
+      "labels": ["test-worker", "macos", "controller"]
+    },
+    {
+      "id": "linux-worker",
+      "name": "Linux worker",
+      "hostname": "worker.example.invalid",
+      "address": "192.0.2.10",
+      "os": "linux",
+      "osVersion": "replace-me",
+      "arch": "amd64",
+      "transport": "ssh",
+      "sshUser": "farm-runner",
+      "physicalLocation": "replace-me",
+      "labels": ["test-worker", "linux"]
+    },
+    {
+      "id": "gpu-worker",
+      "name": "GPU worker",
+      "hostname": "gpu.example.invalid",
+      "address": "192.0.2.11",
+      "os": "linux",
+      "osVersion": "replace-me",
+      "arch": "amd64",
+      "transport": "ssh",
+      "sshUser": "farm-runner",
+      "physicalLocation": "replace-me",
+      "labels": ["test-worker", "linux", "gpu"]
+    },
+    {
+      "id": "infrastructure-console",
+      "name": "Infrastructure console",
+      "hostname": "console.example.invalid",
+      "address": "192.0.2.20",
+      "os": "appliance",
+      "osVersion": "replace-me",
+      "arch": "amd64",
+      "transport": "https",
+      "healthUrl": "https://192.0.2.20/",
+      "allowSelfSigned": true,
+      "physicalLocation": "replace-me",
+      "labels": ["infrastructure"]
+    }
+  ]
+}

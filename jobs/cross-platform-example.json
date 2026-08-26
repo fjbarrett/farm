@@ -1,0 +1,30 @@
+{
+  "apiVersion": "farm/v1",
+  "name": "cross-platform-app-tests",
+  "kind": "test",
+  "selector": {
+    "allLabels": ["test-worker"],
+    "operatingSystems": ["macos", "linux"]
+  },
+  "strategy": {
+    "maxParallel": 3,
+    "failFast": false
+  },
+  "execution": {
+    "isolation": "required",
+    "network": "none",
+    "workspace": "ephemeral"
+  },
+  "steps": [
+    {
+      "name": "install",
+      "command": ["npm", "ci"],
+      "timeoutSeconds": 300
+    },
+    {
+      "name": "test",
+      "command": ["npm", "test"],
+      "timeoutSeconds": 900
+    }
+  ]
+}

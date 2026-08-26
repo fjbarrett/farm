@@ -1,0 +1,25 @@
+/bin/
+/runs/
+/.farm/
+
+# Machine-specific topology and discovery notes. Copy the tracked examples to
+# these names and keep real hostnames, addresses, and usernames local.
+/farm.inventory.json
+/DEVICE_INVENTORY.md
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+
+# Test and profiling output
+coverage.out
+*.prof
+*.log
+*.tmp
+
+# Editor and operating-system files
+.DS_Store
+.idea/
+.vscode/
+*.swp

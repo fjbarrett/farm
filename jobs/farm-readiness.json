@@ -1,0 +1,12 @@
+{
+  "apiVersion": "farm/v1",
+  "name": "farm-readiness",
+  "kind": "probe",
+  "selector": {
+    "anyLabels": ["test-worker", "infrastructure"]
+  },
+  "strategy": {
+    "maxParallel": 5,
+    "failFast": false
+  }
+}
